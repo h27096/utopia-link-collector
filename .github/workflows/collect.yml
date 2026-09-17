@@ -2,7 +2,7 @@ name: Collect Utopia links
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '17 * * * *'
   workflow_dispatch:
 
 permissions:
