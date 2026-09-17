@@ -7,7 +7,7 @@ The 500-host batch observed previously was a HackerTarget provider response, not
 | HackerTarget | Existing reverse-IP lookup. Membership pagination uses documented `page` values after a full 500,000-row provider page; free snapshots cannot be expanded by inventing pages. | `HACKERTARGET_API_KEY` |
 | urlscan | Public historical scans matching `page.ip`. Follows the last result's `sort` value using `search_after`, even for short pages or when `has_more` is false (that flag refers to the 10,000-result total-count threshold). | `URLSCAN_API_KEY` |
 | OTX | IPv4 passive DNS snapshot; accepts hostnames explicitly associated with the target address. This endpoint has no documented pagination. | `OTX_API_KEY` |
-| mnemonic | Public A-record history for the IP; follows `limit`/`offset` until the reported record count is exhausted. Public pages request at most 1,000 records and are spaced at least 6.1 seconds apart. | None required |
+| mnemonic | Public A-record history for the IP; follows `limit`/`offset` until the reported record count is exhausted. Public pages request at most 1,000 records, fall back to 100 or 10 if the server rejects the page size, and are spaced at least 6.1 seconds apart. | None required |
 
 References: [HackerTarget reverse IP](https://hackertarget.com/reverse-ip-lookup/), [urlscan search API](https://urlscan.io/docs/api/), [OTX official SDK](https://github.com/AlienVault-OTX/OTX-Python-SDK), [mnemonic public API](https://www.docs.mnemonic.no/api/services/pdns/01-public_api.html).
 
@@ -41,7 +41,7 @@ Defaults in `config.json`:
 - 35-minute scan deadline including discovery, leaving time within the existing Actions step/job for saving and Docs sync.
 - 20-second full-verification deadline per candidate, in addition to the existing one-second DNS attempts and three-second DNS budget.
 
-Request and verification workers are terminated on timeout. These bounds include network connection and response-body waits; allow small process startup/cleanup overhead. Rate-limit and access errors stop that source without repeated retries. No source can prevent the others from returning candidates.
+Request and verification workers are terminated on timeout. These bounds include network connection and response-body waits; allow small process startup/cleanup overhead. Timeouts and transient server failures get at most one retry per page after a two-second pause, within the same source budget. Rate-limit and access errors stop that source without repeated retries. No source can prevent the others from returning candidates.
 
 `pending_candidates.json` stores merged but unprocessed hostnames for the configured IP. The main process checkpoints the queue before verification, periodically, and when the scan finishes. Later runs process it ahead of newly discovered candidates. The existing Actions save step commits the queue alongside `links.txt`; it never force-pushes. An interrupted run can safely recheck some candidates because the unchanged append function re-reads `links.txt` before every append. A user-cancelled Actions run may skip the save step, as before; the last committed queue remains available.
 
@@ -59,4 +59,4 @@ python collector.py --discover-only
 
 The `append_new` implementation and Google Docs sync code are unchanged. Existing saved lines, duplicates, ordering, and bytes are never cleaned up or rewritten. The existing Actions schedule, concurrency, DNS checks, Google credentials, and Docs steps are retained. Only optional discovery secrets and queue checkpointing are added to the collection workflow.
 
-Tests exercise discovery beyond 500 hosts, pagination, overlaps, provider failures, malformed responses, repeated cursors/pages, rate limits, process deadlines, queue resumption, and saved-byte preservation. GitHub CI runs an additional read-only discovery smoke check with three pages and 25 seconds per source; it does not append any links or write to Google Docs.
+Tests exercise discovery beyond 500 hosts, pagination, overlaps, provider failures, malformed responses, repeated cursors/pages, rate limits, process deadlines, queue resumption, and saved-byte preservation. GitHub CI runs an additional read-only discovery smoke check with 20 pages and 75 seconds per source; it does not append any links or write to Google Docs.

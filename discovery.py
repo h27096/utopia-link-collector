@@ -66,7 +66,10 @@ def settings(config):
 
 
 class SourceError(ValueError):
-    pass
+    def __init__(self, message, status=None, retryable=False):
+        super().__init__(message)
+        self.status = status
+        self.retryable = retryable
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -85,9 +88,10 @@ def http_worker(request):
                 return {"error": "response exceeds 32 MB safety limit"}
             return {"text": data.decode("utf-8", errors="replace")}
     except HTTPError as error:
-        return {"error": f"HTTP {error.code}; source stopped (quota/access/provider error)"}
+        return {"error": f"HTTP {error.code}; source stopped (quota/access/provider error)",
+                "status": error.code, "retryable": 500 <= error.code <= 599}
     except (OSError, ValueError, http.client.HTTPException):
-        return {"error": "request failed or timed out"}
+        return {"error": "request failed or timed out", "retryable": True}
 
 
 def fetch_text(url, timeout, headers):
@@ -102,10 +106,10 @@ def fetch_text(url, timeout, headers):
             raise SourceError("request worker failed")
         response = json.loads(result.stdout)
         if "error" in response:
-            raise SourceError(response["error"])
+            raise SourceError(response["error"], response.get("status"), response.get("retryable", False))
         return response["text"]
     except subprocess.TimeoutExpired:
-        raise SourceError(f"request deadline ({timeout:.1f}s)") from None
+        raise SourceError(f"request deadline ({timeout:.1f}s)", retryable=True) from None
     except (OSError, json.JSONDecodeError, KeyError, TypeError):
         raise SourceError("invalid response from request worker") from None
 
@@ -124,6 +128,7 @@ def collect_source(source, target, opts):
     deadline = time.monotonic() + opts["source_timeout_seconds"]
     cursor = None
     offset = 0
+    mnemonic_limit = 1000
     fingerprints = set()
     headers = {}
     if source in KEYS:
@@ -153,8 +158,19 @@ def collect_source(source, target, opts):
             elif source == "otx":
                 url = f"https://otx.alienvault.com/api/v1/indicators/IPv4/{target}/passive_dns"
             else:
-                url = f"https://api.mnemonic.no/pdns/v3/{target}?" + urlencode({"rrType": "A", "limit": 1000, "offset": offset})
-            text = fetch_text(url, min(opts["request_timeout_seconds"], remaining), headers)
+                url = f"https://api.mnemonic.no/pdns/v3/{target}?" + urlencode({"rrType": "A", "limit": mnemonic_limit, "offset": offset})
+            try:
+                text = fetch_text(url, min(opts["request_timeout_seconds"], remaining), headers)
+            except SourceError as error:
+                if source == "mnemonic" and error.status == 412 and mnemonic_limit > 10:
+                    # Respect stricter server-side limits by asking for less.
+                    mnemonic_limit //= 10
+                    result.note = f"server required smaller pages ({mnemonic_limit} rows)"
+                    continue
+                if not error.retryable or deadline - time.monotonic() <= 2:
+                    raise
+                time.sleep(2)
+                text = fetch_text(url, min(opts["request_timeout_seconds"], deadline - time.monotonic()), headers)
             result.pages += 1
             fingerprint = hashlib.sha256(text.encode()).hexdigest()
             if fingerprint in fingerprints:

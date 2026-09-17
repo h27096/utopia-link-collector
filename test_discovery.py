@@ -77,6 +77,18 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(result.hosts, {"one.example"})
         self.assertEqual(fetch.call_count, 1)
 
+    def test_mnemonic_reduces_page_size_when_server_rejects_limit(self):
+        result, fetch = self.source("mnemonic", [d.SourceError("HTTP 412", status=412),
+            json.dumps({"count": 1, "data": [{"rrtype": "a", "query": "one.example", "answer": IP}]})])
+        self.assertEqual(result.hosts, {"one.example"})
+        self.assertIn("limit=100&", fetch.call_args_list[1].args[0])
+        self.assertIn("offset=0", fetch.call_args_list[1].args[0])
+
+    def test_transient_timeout_gets_one_retry(self):
+        result, fetch = self.source("otx", [d.SourceError("timeout", retryable=True), '{"passive_dns": []}'])
+        self.assertTrue(result.successful)
+        self.assertEqual(fetch.call_count, 2)
+
     def test_repeated_page_stops_and_retains_candidates(self):
         payload = json.dumps({"results": [urlscan_row("one.example", [123, "x"])]})
         result, fetch = self.source("urlscan", [payload, payload])
