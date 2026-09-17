@@ -2,3 +2,8 @@ __pycache__/
 *.py[cod]
 .venv/
 *.lock
+.env
+.env.*
+credentials.json
+service-account*.json
+*-credentials.json
