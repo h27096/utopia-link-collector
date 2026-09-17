@@ -44,9 +44,13 @@ The `.lock` file coordinates instances of this collector. Avoid editing the file
 
 Console output includes candidates found, already saved, rejected/unverified with reasons, newly appended, dry-run matches, and deferred candidates. Saved links are skipped without rechecking availability; the collector never cleans up old links. Exit code 0 means discovery and processing completed, even if nothing could be verified. Discovery/configuration/storage failures exit 1; an interrupted scan exits 130. Previously completed appends remain saved if a later operation fails.
 
-## Optional recurring runs
+## Hourly scans on GitHub
 
-Use Windows Task Scheduler (or your operating system's scheduler) to run the full path to your Python executable with the full path to `collector.py` as its argument. Start with a daily schedule and consult your discovery provider's quota before increasing frequency. Disable overlapping scheduled runs. No scheduled task is installed by this project.
+The included [GitHub Actions workflow](.github/workflows/collect.yml) schedules a scan at minute 0 of every hour (UTC). It checks the latest main branch, runs the tests, scans public sources, and commits only additions to links.txt when new links are found. Existing lines and duplicates stay unchanged. It uses GitHub's automatic token; no personal token or Discord credentials are needed.
+
+View runs under **Actions > Collect Utopia links**. Use **Run workflow** there for a manual scan. GitHub can delay or occasionally drop scheduled runs during heavy load, especially at the start of the hour; this is a schedule, not an exact-time guarantee. In public repositories, GitHub may disable scheduled workflows after 60 days without repository activity. See [GitHub's schedule documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+
+Runs cannot overlap. Each scan has a 45-minute limit, and the job has a 55-minute limit. Completed additions are saved even if the scan later reports an error. Pushes never force-overwrite concurrent changes: if someone edits main during a scan, the push may fail and a later scan can rediscover those links. Branch rules must permit the workflow to commit to main. Provider quotas still apply; an hourly schedule makes up to 24 discovery calls per day from GitHub's shared runners, so rate limits can occur.
 
 ## Tests
 
