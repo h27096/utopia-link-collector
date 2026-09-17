@@ -1,6 +1,6 @@
 # Utopia Link Collector V1
 
-Discovers publicly indexed hostnames associated with `104.218.50.66`, checks them, and appends new verified HTTPS URLs to `links.txt`. The core collector uses Python 3.10+ with no external dependencies, accounts, or tokens. Optional Google Sheets uploads use a Google service account and the dependencies in `requirements-sheets.txt`. No Discord access or scraping.
+Discovers publicly indexed hostnames associated with `104.218.50.66`, checks them, and appends new verified HTTPS URLs to `links.txt`. The core collector uses Python 3.10+ with no external dependencies, accounts, or tokens. Optional Google Docs uploads use a Google service account and the dependencies in `requirements-docs.txt`. No Discord access or scraping.
 
 ## Setup and run
 
@@ -52,12 +52,14 @@ View runs under **Actions > Collect Utopia links**. Use **Run workflow** there f
 
 Runs cannot overlap. Each scan has a 45-minute limit, and the job has a 55-minute limit. Completed additions are saved even if the scan later reports an error. Pushes never force-overwrite concurrent changes: if someone edits main during a scan, the push may fail and a later scan can rediscover those links. Branch rules must permit the workflow to commit to main. Provider quotas still apply; an hourly schedule makes up to 24 discovery calls per day from GitHub's shared runners, so rate limits can occur.
 
-## Google Sheets uploads
+## Google Docs uploads
 
-The hourly job can also append saved links to your Google Sheet. Your destination ID is configured; follow [the one-time Google access setup](GOOGLE_SHEETS_SETUP.md) to activate uploads. It reads the existing tab, skips URLs already present, and preserves existing rows and duplicates. It rechecks all saved links each run so missed uploads can catch up. Until the credential secret is supplied, collection continues in `links.txt` and Sheets uploads are explicitly skipped.
+The hourly workflow appends missing saved links to your [Google Doc](https://docs.google.com/document/d/1hKE01p0Wy2jjBw5oi0f6-PgVUj4sizWw9SZI6Cu1Jgo/edit). Follow [the one-time Google Docs access setup](GOOGLE_DOCS_SETUP.md) to activate uploads. It checks the document before each batch and appends only missing URLs, preserving existing text and duplicates. Revision guards reject writes if the document changes during the check. It checks all saved links each run so missed uploads can catch up.
+
+Until credentials are supplied, collection continues in `links.txt` and Docs uploads report pending setup. The hourly workflow no longer runs the Sheets uploader.
 
 ## Tests
 
 `python -m unittest -v` runs offline tests covering preservation of duplicate lines and original bytes, missing final newline, URL comparison, locking, discovery error handling, conservative branding, DNS/TLS failures, repeated scans, and dry-run behavior. Test hostnames are fixtures, not claimed discoveries.
 
-The suite also covers Google Sheets append-only behavior, repeated uploads, manual entries, missing tabs, and recovery from an uncertain write response. These are offline API simulations; live Google access must be configured separately.
+All 31 offline tests cover the collector and Google upload logic, including Docs append-only behavior, repeated uploads, styled links, multiple tabs, revision conflicts, and recovery from an uncertain write response. These are offline API simulations; live Google access must be configured separately.
