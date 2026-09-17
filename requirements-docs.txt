@@ -1,0 +1,2 @@
+# Google Docs uploader; collector.py remains standard-library only.
+google-auth[requests]>=2.38.0,<3
