@@ -11,7 +11,7 @@ python collector.py --dry-run
 python collector.py
 ```
 
-On Windows, `py` can be used instead of `python` if installed with the Python launcher. No `pip install` is needed. A scan runs once and exits.
+On Windows, `py` can be used instead of `python` if installed with the Python launcher. No `pip install` is needed. A scan runs once and exits, with a 35-minute scan budget including discovery.
 
 ```powershell
 python collector.py --dry-run --max-candidates 5
@@ -19,11 +19,11 @@ python -m unittest -v
 python collector.py --config config.json
 ```
 
-The optional candidate limit processes the first N sorted candidates; the remainder are reported as deferred. Omit it for a full scan. Dry runs perform network checks but do not create or modify the links file.
+The optional candidate limit processes N candidates, with previously deferred candidates first. Normal runs save remaining candidates to a separate queue for the next run; dry runs never change that queue. Omit it for a full scan. Dry runs perform network checks but do not create or modify the links file.
 
 ## How discovery and verification work
 
-1. Query the documented [HackerTarget reverse-IP API](https://hackertarget.com/ip-tools/) once per scan. This public index is incomplete and may contain stale associations; it is not a complete inventory of the server. Free quotas and result limits apply and can change. Unexpected responses and quota errors fail the scan visibly rather than being treated as hostnames. V1 has one discovery provider and does not bypass its limits.
+1. Query HackerTarget reverse IP, urlscan public scan search, OTX passive DNS, and mnemonic public passive DNS. Merge normalized hostnames from all sources before verification; the Actions log shows each source's unique count and the combined unique count. See [discovery sources and limits](DISCOVERY.md).
 2. Resolve each unsaved hostname through the runner's system resolver first, then [Cloudflare DNS over HTTPS](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/) and [Google Public DNS over HTTPS](https://developers.google.com/speed/public-dns/docs/doh/json) if necessary. A successful IPv4 answer must include the configured target IP. A DNS error never authorizes a link.
 3. Fetch only `/` over HTTPS directly from that IP, using the candidate hostname for TLS certificate verification, SNI, and the Host header. Require HTTP 200 and HTML, with a one-megabyte response limit. Redirects, invalid certificates, inaccessible sites, and non-HTML responses remain unverified. No insecure HTTP fallback.
 4. Require the whole word `Utopia` in the HTML title, `og:site_name`, or `application-name` metadata. A body-text mention alone is insufficient.
@@ -37,6 +37,12 @@ Immediately before each append, the collector locks the output for other collect
 For a genuinely new URL it appends one line. If the old file lacks a final newline, it appends a separating newline first; all original bytes remain intact. URLs inside manually written text are recognized, too. Comparison normalizes hostname case, default ports, and an empty root path; HTTP and HTTPS remain different URLs. Prefer one full URL per line in UTF-8 text. Existing arbitrary bytes are preserved, but UTF-16 files are not supported for duplicate recognition.
 
 The `.lock` file coordinates instances of this collector. Avoid editing the file in another application during the brief append operation because other editors do not honor this lock. If a process is forcibly terminated and leaves a stale `links.txt.lock`, confirm no collector is running before removing only that lock file. Ordinary errors release it automatically.
+
+## Expanded public discovery
+
+The collector retains HackerTarget and adds three public sources. urlscan uses `search_after`; mnemonic uses `offset`; HackerTarget supports documented membership pagination when applicable. OTX passive DNS is a single snapshot. There is no overall 500-candidate ceiling: the default safety bound is 50,000 unique candidates per source, up to 100 pages and 120 seconds per source. Provider subscription limits still apply and cannot be removed by this client.
+
+`pending_candidates.json` holds deferred work separately from `links.txt`. It is committed by the existing collection job so later runs can resume. Discovery failures are isolated; already obtained candidates are retained. The scan has a 35-minute budget, each full candidate verification is capped at 20 seconds, and the existing short DNS deadlines remain unchanged. The job exits in time for the existing save and Google Docs steps. See [DISCOVERY.md](DISCOVERY.md) for credentials, logs, exact limits, and tradeoffs.
 
 ## Configuration and output
 
@@ -80,4 +86,4 @@ Until credentials are supplied, collection continues in `links.txt` and Docs upl
 
 `python -m unittest -v` runs offline tests covering preservation of duplicate lines and original bytes, missing final newline, URL comparison, locking, discovery error handling, conservative branding, DNS/TLS failures, repeated scans, and dry-run behavior. Test hostnames are fixtures, not claimed discoveries.
 
-All 46 offline tests cover the collector and Google upload logic, including Docs append-only behavior, repeated uploads, styled links, multiple tabs, revision conflicts, and recovery from an uncertain write response. These are offline API simulations; live Google access must be configured separately.
+All 66 offline tests cover the collector and Google upload logic, including Docs append-only behavior, repeated uploads, styled links, multiple tabs, revision conflicts, and recovery from an uncertain write response. These are offline API simulations; live Google access must be configured separately.

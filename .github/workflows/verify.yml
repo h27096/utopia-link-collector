@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'collector.py'
+      - 'discovery.py'
+      - 'discovery_smoke.py'
       - 'dns_verify.py'
       - 'dns_smoke.py'
       - 'test*.py'
@@ -25,3 +27,5 @@ jobs:
         run: python -m unittest -v
       - name: Live DNS controls on GitHub runner
         run: python -u dns_smoke.py
+      - name: Read-only public discovery smoke test
+        run: python -u discovery_smoke.py

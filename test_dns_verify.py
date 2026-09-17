@@ -123,6 +123,7 @@ class DNSVerificationTests(unittest.TestCase):
             config = {**CONFIG, "timeout_seconds": 10, "request_delay_seconds": 1}
             with patch.object(c, "discover", return_value=["host.example"]), \
                  patch.object(d, "bounded_query", return_value=NEGATIVE), \
+                 patch.object(c, "bounded_verify", side_effect=lambda host, config, timeout: c.verify(host, config)), \
                  patch.object(c, "fetch_page") as page, patch.object(c.time, "sleep") as sleep, \
                  patch("sys.stdout", new_callable=io.StringIO):
                 c.scan(config, path)

@@ -12,46 +12,15 @@ import socket
 import ssl
 import sys
 import time
-from urllib.parse import urlencode, urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.parse import urlsplit, urlunsplit
+import subprocess
+
+from discovery import SourceError, discover, hostname, settings as discovery_settings
 
 from dns_verify import options as dns_options, resolves_to_target
 
 USER_AGENT = "UtopiaLinkCollector/1.0"
 LIMIT = 1_000_000
-
-
-def get_text(url, timeout):
-    with urlopen(Request(url, headers={"User-Agent": USER_AGENT}), timeout=timeout) as response:
-        data = response.read(LIMIT + 1)
-        if len(data) > LIMIT:
-            raise ValueError("response exceeds size limit")
-        return data.decode("utf-8", errors="replace")
-
-
-def hostname(value):
-    value = value.strip().lower().rstrip(".")
-    labels = value.split(".")
-    if len(value) > 253 or len(labels) < 2:
-        return None
-    if not all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", p) for p in labels):
-        return None
-    try:
-        ipaddress.ip_address(value)
-        return None
-    except ValueError:
-        return value
-
-
-def discover(config):
-    url = "https://api.hackertarget.com/reverseiplookup/?" + urlencode({"q": config["target_ip"]})
-    body = get_text(url, config["timeout_seconds"])
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
-    if not lines:
-        raise ValueError("discovery returned an empty response")
-    if any(hostname(line) is None for line in lines):
-        raise ValueError("discovery provider returned an error or unexpected response: " + repr(body[:200]))
-    return sorted({hostname(line) for line in lines})
 
 
 class BrandingParser(HTMLParser):
@@ -168,16 +137,37 @@ def append_new(path, url):
 
 
 def scan(config, path, dry_run=False, max_candidates=None):
-    candidates = discover(config)
+    deadline = time.monotonic() + config.get("scan_timeout_seconds", 2100)
+    state_path = path.with_name("pending_candidates.json")
+    if state_path.resolve() == path.resolve():
+        raise ValueError("links_file must not be pending_candidates.json")
+    pending = load_pending(state_path, config["target_ip"])
+    try:
+        discovered = discover(config)
+    except SourceError:
+        if not pending:
+            raise
+        print("Discovery unavailable; continuing previously discovered pending candidates.", flush=True)
+        discovered = []
+    candidates = list(dict.fromkeys(pending + discovered))
+    print(f"Pending carried forward: {len(pending)} | Fresh discovered: {len(discovered)}", flush=True)
     print(f"Candidates found: {len(candidates)}", flush=True)
     already = rejected = appended = would_append = 0
     selected = candidates if max_candidates is None else candidates[:max_candidates]
+    processed = 0
+    if not dry_run:
+        save_pending(state_path, config["target_ip"], candidates)
     for host in selected:
+        remaining = deadline - time.monotonic()
+        if remaining < 0.1:
+            print("Scan time budget reached; remaining candidates deferred.", flush=True)
+            break
         url = f"https://{host}/"
         if path.exists() and url_key(url) in saved_urls(path.read_bytes()):
             already += 1
+            processed += 1
             continue
-        valid, reason = verify(host, config)
+        valid, reason = bounded_verify(host, config, min(config.get("verification_timeout_seconds", 20), remaining))
         if not valid:
             rejected += 1
             print(f"Unverified {host}: {reason}", flush=True)
@@ -189,20 +179,66 @@ def scan(config, path, dry_run=False, max_candidates=None):
             print(f"Appended: {url}", flush=True)
         else:
             already += 1
+        processed += 1
+        if not dry_run and processed % 50 == 0:
+            save_pending(state_path, config["target_ip"], candidates[processed:])
+    if not dry_run:
+        save_pending(state_path, config["target_ip"], candidates[processed:])
     print(f"Already saved: {already} | Rejected/unverified: {rejected} | Newly appended: {appended} | "
-          f"Would append: {would_append} | Deferred by limit: {len(candidates) - len(selected)}", flush=True)
+          f"Would append: {would_append} | Deferred (time/count limit): {len(candidates) - processed}", flush=True)
+
+
+def load_pending(path, target):
+    if not path.exists():
+        return []
+    state = json.loads(path.read_text(encoding="utf-8"))
+    if state.get("target_ip") != target:
+        return []
+    if not isinstance(state.get("hosts"), list):
+        raise ValueError("Invalid pending candidate queue")
+    return list(dict.fromkeys(host for value in state["hosts"] if (host := hostname(value))))
+
+
+def save_pending(path, target, hosts):
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps({"target_ip": target, "hosts": hosts}, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def bounded_verify(host, config, timeout):
+    # Child can resolve/fetch only. All file appends remain in this main process.
+    try:
+        result = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--verify-worker", host],
+            input=json.dumps(config), capture_output=True, text=True, timeout=timeout,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        if result.returncode:
+            return False, "verification worker failed"
+        value = json.loads(result.stdout)
+        if not isinstance(value, list) or len(value) != 2 or type(value[0]) is not bool or not isinstance(value[1], str):
+            return False, "malformed verification result"
+        return value[0], value[1]
+    except subprocess.TimeoutExpired:
+        return False, f"verification deadline ({timeout:.1f}s)"
+    except (OSError, ValueError):
+        return False, "verification worker unavailable"
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.json"))
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--discover-only", action="store_true", help="Log merged discovery results without verification or writes")
     parser.add_argument("--max-candidates", type=int)
     args = parser.parse_args()
     try:
         config = json.loads(args.config.read_text(encoding="utf-8-sig"))
         address = ipaddress.ip_address(config["target_ip"])
         dns_options(config)
+        discovery_settings(config)
+        for key, default, maximum in (("scan_timeout_seconds", 2100, 2400), ("verification_timeout_seconds", 20, 60)):
+            value = config.get(key, default)
+            if type(value) not in (int, float) or not 0.1 <= value <= maximum:
+                raise ValueError(f"{key} must be between 0.1 and {maximum}")
         if address.version != 4 or not address.is_global:
             raise ValueError("target_ip must be a public IPv4 address")
         for key in ("timeout_seconds", "request_delay_seconds"):
@@ -211,6 +247,9 @@ def main():
         if args.max_candidates is not None and args.max_candidates < 1:
             raise ValueError("--max-candidates must be positive")
         path = args.config.resolve().parent / config["links_file"]
+        if args.discover_only:
+            discover(config)
+            return 0
         scan(config, path, args.dry_run, args.max_candidates)
         return 0
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, http.client.HTTPException) as error:
@@ -222,4 +261,7 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    if len(sys.argv) == 3 and sys.argv[1] == "--verify-worker":
+        print(json.dumps(verify(sys.argv[2], json.load(sys.stdin))))
+    else:
+        sys.exit(main())

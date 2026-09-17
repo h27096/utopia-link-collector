@@ -30,19 +30,23 @@ jobs:
       - name: Scan public sources
         id: scan
         timeout-minutes: 45
+        env:
+          HACKERTARGET_API_KEY: ${{ secrets.HACKERTARGET_API_KEY }}
+          URLSCAN_API_KEY: ${{ secrets.URLSCAN_API_KEY }}
+          OTX_API_KEY: ${{ secrets.OTX_API_KEY }}
         run: python -u collector.py
       - name: Save newly collected links
         if: ${{ always() && !cancelled() && steps.scan.outcome != 'skipped' }}
         shell: bash
         run: |
-          git add -- links.txt
+          git add -- links.txt pending_candidates.json
           if git diff --cached --quiet; then
-            echo "No new links to save."
+            echo "No new links or pending-queue changes to save."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Append newly verified Utopia links"
+          git commit -m "Append newly verified links and checkpoint pending candidates"
           # Never force-push or overwrite concurrent edits. If main changed,
           # this push fails visibly; the next scan can rediscover those links.
           git push origin HEAD:main

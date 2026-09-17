@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import collector as c
+import discovery as d
 
 CONFIG = {"target_ip": "104.218.50.66", "timeout_seconds": 1, "request_delay_seconds": 0.001}
 
@@ -45,12 +46,13 @@ class CollectorTests(unittest.TestCase):
             self.assertFalse(path.exists())
 
     def test_discovery_validation_and_duplicate_candidates(self):
-        with patch.object(c, "get_text", return_value="one.example\nONE.example\ntwo.example\n"):
-            self.assertEqual(c.discover(CONFIG), ["one.example", "two.example"])
+        config = {**CONFIG, "discovery": {"sources": ["hackertarget"]}}
+        with patch.object(d, "fetch_text", return_value="one.example\nONE.example\ntwo.example\n"):
+            self.assertEqual(c.discover(config), ["one.example", "two.example"])
         for body in ("API count exceeded", "error check your search parameter", "", "127.0.0.1", "a.example\nerror"):
-            with patch.object(c, "get_text", return_value=body):
+            with patch.object(d, "fetch_text", return_value=body):
                 with self.assertRaises(ValueError):
-                    c.discover(CONFIG)
+                    c.discover(config)
 
     def test_branding_requires_title_or_metadata(self):
         for html, expected in (("<title>Utopia | Home</title>", True),
@@ -79,7 +81,7 @@ class CollectorTests(unittest.TestCase):
             original = b"https://old.example/\nhttps://old.example/\n"
             path.write_bytes(original)
             with patch.object(c, "discover", return_value=["old.example", "new.example", "bad.example"]), \
-                 patch.object(c, "verify", side_effect=lambda host, config: (host != "bad.example", "test")), \
+                 patch.object(c, "bounded_verify", side_effect=lambda host, config, timeout: (host != "bad.example", "test")), \
                  patch("sys.stdout", new_callable=io.StringIO) as output:
                 c.scan(CONFIG, path)
                 c.scan(CONFIG, path)
@@ -90,7 +92,7 @@ class CollectorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "links.txt"
             with patch.object(c, "discover", return_value=["new.example"]), \
-                 patch.object(c, "verify", return_value=(True, "test")), patch("sys.stdout", new_callable=io.StringIO):
+                 patch.object(c, "bounded_verify", return_value=(True, "test")), patch("sys.stdout", new_callable=io.StringIO):
                 c.scan(CONFIG, path, dry_run=True)
             self.assertFalse(path.exists())
 
