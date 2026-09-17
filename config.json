@@ -2,5 +2,9 @@
   "target_ip": "104.218.50.66",
   "links_file": "links.txt",
   "timeout_seconds": 10,
-  "request_delay_seconds": 1
+  "request_delay_seconds": 1,
+  "google_sheets": {
+    "spreadsheet_id": "1mEvVF0RansevGDPLpYiKL16NBuZQ6i4AkxLWMa04HWI",
+    "tab_name": ""
+  }
 }
