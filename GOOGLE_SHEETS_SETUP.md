@@ -1,5 +1,7 @@
 # Connect your Google Sheet
 
+**Superseded:** the hourly workflow now uploads to Google Docs. Follow [Google Docs setup](GOOGLE_DOCS_SETUP.md). The Sheets information below is retained for the optional standalone Sheets script; it no longer describes the active hourly workflow.
+
 The uploader and hourly GitHub workflow are ready. Your sheet ID is already in `config.json`:
 
 [Open your destination sheet](https://docs.google.com/spreadsheets/d/1mEvVF0RansevGDPLpYiKL16NBuZQ6i4AkxLWMa04HWI/edit)
