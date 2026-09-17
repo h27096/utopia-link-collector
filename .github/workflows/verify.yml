@@ -1,0 +1,27 @@
+name: Verify collector DNS
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'collector.py'
+      - 'dns_verify.py'
+      - 'dns_smoke.py'
+      - 'test*.py'
+      - 'config.json'
+      - '.github/workflows/verify.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline regression tests
+        run: python -m unittest -v
+      - name: Live DNS controls on GitHub runner
+        run: python -u dns_smoke.py

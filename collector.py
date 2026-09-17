@@ -15,6 +15,8 @@ import time
 from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from dns_verify import options as dns_options, resolves_to_target
+
 USER_AGENT = "UtopiaLinkCollector/1.0"
 LIMIT = 1_000_000
 
@@ -50,15 +52,6 @@ def discover(config):
     if any(hostname(line) is None for line in lines):
         raise ValueError("discovery provider returned an error or unexpected response: " + repr(body[:200]))
     return sorted({hostname(line) for line in lines})
-
-
-def resolves_to_target(host, config):
-    url = "https://dns.google/resolve?" + urlencode({"name": host, "type": "A", "edns_client_subnet": "0.0.0.0/0"})
-    answer = json.loads(get_text(url, config["timeout_seconds"]))
-    if answer.get("Status") != 0 or answer.get("TC"):
-        raise ValueError("DNS lookup failed or was truncated")
-    return any(record.get("type") == 1 and record.get("data") == config["target_ip"]
-               for record in answer.get("Answer", []))
 
 
 class BrandingParser(HTMLParser):
@@ -114,6 +107,8 @@ def verify(host, config):
     try:
         if not resolves_to_target(host, config):
             return False, "current public DNS does not include target IP"
+        # Rate-limit actual page requests, not rejected DNS lookups.
+        time.sleep(config["request_delay_seconds"])
         parser = BrandingParser()
         parser.feed(fetch_page(host, config))
         if not parser.matches():
@@ -194,7 +189,6 @@ def scan(config, path, dry_run=False, max_candidates=None):
             print(f"Appended: {url}", flush=True)
         else:
             already += 1
-        time.sleep(config["request_delay_seconds"])
     print(f"Already saved: {already} | Rejected/unverified: {rejected} | Newly appended: {appended} | "
           f"Would append: {would_append} | Deferred by limit: {len(candidates) - len(selected)}", flush=True)
 
@@ -208,6 +202,7 @@ def main():
     try:
         config = json.loads(args.config.read_text(encoding="utf-8-sig"))
         address = ipaddress.ip_address(config["target_ip"])
+        dns_options(config)
         if address.version != 4 or not address.is_global:
             raise ValueError("target_ip must be a public IPv4 address")
         for key in ("timeout_seconds", "request_delay_seconds"):

@@ -24,7 +24,7 @@ The optional candidate limit processes the first N sorted candidates; the remain
 ## How discovery and verification work
 
 1. Query the documented [HackerTarget reverse-IP API](https://hackertarget.com/ip-tools/) once per scan. This public index is incomplete and may contain stale associations; it is not a complete inventory of the server. Free quotas and result limits apply and can change. Unexpected responses and quota errors fail the scan visibly rather than being treated as hostnames. V1 has one discovery provider and does not bypass its limits.
-2. Check each unsaved hostname's A records using [Google Public DNS over HTTPS](https://developers.google.com/speed/public-dns/docs/doh/json). The configured target IP must still appear.
+2. Resolve each unsaved hostname through the runner's system resolver first, then [Cloudflare DNS over HTTPS](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/) and [Google Public DNS over HTTPS](https://developers.google.com/speed/public-dns/docs/doh/json) if necessary. A successful IPv4 answer must include the configured target IP. A DNS error never authorizes a link.
 3. Fetch only `/` over HTTPS directly from that IP, using the candidate hostname for TLS certificate verification, SNI, and the Host header. Require HTTP 200 and HTML, with a one-megabyte response limit. Redirects, invalid certificates, inaccessible sites, and non-HTML responses remain unverified. No insecure HTTP fallback.
 4. Require the whole word `Utopia` in the HTML title, `og:site_name`, or `application-name` metadata. A body-text mention alone is insufficient.
 
@@ -40,9 +40,27 @@ The `.lock` file coordinates instances of this collector. Avoid editing the file
 
 ## Configuration and output
 
-`config.json` controls the target public IPv4 address, links filename, per-operation network timeout, and pause between candidate checks. The links path is resolved relative to the config file, so running from another folder still uses the correct list. Its parent directory must exist. TLS checks cannot be disabled through configuration. Socket timeouts are per operation, not a total scan deadline.
+`config.json` controls the target public IPv4 address, links filename, page/discovery network timeout, separate DNS deadlines, and pause before page requests. The links path is resolved relative to the config file, so running from another folder still uses the correct list. Its parent directory must exist. TLS checks cannot be disabled through configuration. Page/discovery socket timeouts are per operation, not a total scan deadline. DNS has its own total deadline described below.
 
 Console output includes candidates found, already saved, rejected/unverified with reasons, newly appended, dry-run matches, and deferred candidates. Saved links are skipped without rechecking availability; the collector never cleans up old links. Exit code 0 means discovery and processing completed, even if nothing could be verified. Discovery/configuration/storage failures exit 1; an interrupted scan exits 130. Previously completed appends remain saved if a later operation fails.
+
+## DNS reliability and speed
+
+DNS no longer depends on a single Google JSON response or the 10-second page timeout. Defaults:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `dns_timeout_seconds` | 1.0 | Maximum time for each resolver worker, including OS DNS and HTTPS setup |
+| `dns_total_timeout_seconds` | 3.0 | Shared deadline across all resolver attempts for one hostname |
+| `dns_attempts` | 2 | At most two passes; retry only transient failures if time remains |
+
+The system resolver, Cloudflare, and Google are tried in that order. Fallbacks are tried before retries. NXDOMAIN (name does not exist) and NODATA (no IPv4 A record) are not retried against the same resolver. SERVFAIL, REFUSED, truncation, invalid responses, HTTP failures, and timeouts can fall back or retry within the same total budget. Logs identify the resolver and outcome instead of treating every negative answer as “failed or truncated.” Stale public-index hostnames can still be rejected correctly.
+
+Worker processes are killed and reaped on timeout, so a hanging OS resolver cannot leave an unlimited background thread running or delay shutdown. The deadline excludes small process start/cleanup overhead. DNS-over-HTTPS certificate checks stay enabled, DNSSEC checking is not disabled, and A records must belong to the requested hostname or its CNAME chain.
+
+The one-second page-request pause is applied only after DNS matches the target. DNS-only rejections no longer incur an extra one-second sleep. HTTPS and branding checks still follow DNS verification, and the append-only writer is unchanged.
+
+For a read-only diagnostic, run `python dns_verify.py hostname.example`. The separate **Verify collector DNS** Actions workflow runs the offline suite and live positive/negative DNS controls on an Ubuntu GitHub runner when DNS code changes. It never writes to `links.txt` or Google Docs. `python dns_smoke.py` runs the same network checks locally.
 
 ## Hourly scans on GitHub
 
@@ -62,4 +80,4 @@ Until credentials are supplied, collection continues in `links.txt` and Docs upl
 
 `python -m unittest -v` runs offline tests covering preservation of duplicate lines and original bytes, missing final newline, URL comparison, locking, discovery error handling, conservative branding, DNS/TLS failures, repeated scans, and dry-run behavior. Test hostnames are fixtures, not claimed discoveries.
 
-All 31 offline tests cover the collector and Google upload logic, including Docs append-only behavior, repeated uploads, styled links, multiple tabs, revision conflicts, and recovery from an uncertain write response. These are offline API simulations; live Google access must be configured separately.
+All 46 offline tests cover the collector and Google upload logic, including Docs append-only behavior, repeated uploads, styled links, multiple tabs, revision conflicts, and recovery from an uncertain write response. These are offline API simulations; live Google access must be configured separately.
