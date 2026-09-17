@@ -84,17 +84,18 @@ def sync(session, spreadsheet_id, tab_name, links, dry_run=False):
     return appended
 
 
-def make_session(credentials_json):
+def make_session(credentials_json, scopes=None):
     try:
         from google.oauth2.service_account import Credentials
         from google.auth.transport.requests import AuthorizedSession
     except ImportError:
-        raise SyncError("Install the optional dependencies: python -m pip install -r requirements-sheets.txt") from None
+        dependency_file = "requirements-docs.txt" if scopes and "https://www.googleapis.com/auth/documents" in scopes else "requirements-sheets.txt"
+        raise SyncError(f"Install the optional dependencies: python -m pip install -r {dependency_file}") from None
     try:
         info = json.loads(credentials_json)
         if info.get("type") != "service_account" or info.get("token_uri") != "https://oauth2.googleapis.com/token":
             raise ValueError("Unexpected credential type or token endpoint")
-        credentials = Credentials.from_service_account_info(info, scopes=SCOPES)
+        credentials = Credentials.from_service_account_info(info, scopes=SCOPES if scopes is None else scopes)
         return AuthorizedSession(credentials, refresh_timeout=30)
     except Exception:
         raise SyncError("GOOGLE_SERVICE_ACCOUNT_JSON must contain a valid Google service-account JSON key.") from None
