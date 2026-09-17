@@ -1,0 +1,2 @@
+# Optional; collector.py itself still needs only the Python standard library.
+google-auth[requests]>=2.38.0,<3
