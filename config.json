@@ -1,0 +1,6 @@
+{
+  "target_ip": "104.218.50.66",
+  "links_file": "links.txt",
+  "timeout_seconds": 10,
+  "request_delay_seconds": 1
+}
