@@ -3,8 +3,8 @@
   "links_file": "links.txt",
   "timeout_seconds": 10,
   "request_delay_seconds": 1,
-  "google_sheets": {
-    "spreadsheet_id": "1mEvVF0RansevGDPLpYiKL16NBuZQ6i4AkxLWMa04HWI",
-    "tab_name": ""
+  "google_docs": {
+    "document_id": "1hKE01p0Wy2jjBw5oi0f6-PgVUj4sizWw9SZI6Cu1Jgo",
+    "tab_id": ""
   }
 }
