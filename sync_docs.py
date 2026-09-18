@@ -46,12 +46,13 @@ def target_location(document, tab_id):
         target = next((tab for tab in tabs if tab.get("tabProperties", {}).get("tabId") == tab_id), None) if tab_id else tabs[0]
         if target is None:
             raise SyncError("GOOGLE_DOC_TAB_ID does not match a tab in this document.")
-        return {"tabId": target["tabProperties"]["tabId"]}, target["documentTab"].get("body", {})
-    if tab_id:
-        raise SyncError("The requested tab is not available.")
-    if "body" not in document:
-        raise SyncError("Google returned no writable document body.")
-    return {}, document["body"]
+        selected_id = target.get("tabProperties", {}).get("tabId")
+        content = target["documentTab"]
+        if not selected_id or not isinstance(content.get("body"), dict):
+            raise SyncError("Google returned no writable body for the selected tab.")
+        return {"tabId": selected_id}, content
+    # includeTabsContent=true must return tabs. Never issue an unscoped insert.
+    raise SyncError("The requested document tabs are not available; refusing to write.")
 
 
 def checked(response, operation):
@@ -66,12 +67,19 @@ def sync(session, document_id, links, tab_id="", dry_run=False):
         raise SyncError("Set GOOGLE_DOC_ID to the ID between /d/ and /edit in the document URL.")
     source = list(dict.fromkeys(url_key(url) for url in links))
     appended = already = would_append = 0
+    selected_id = tab_id.strip()
+    if selected_id:
+        print(f"Docs: configured tab ID {selected_id}", flush=True)
     # Read even an empty source to validate access/configuration.
     for start in range(0, max(len(source), 1), BATCH_SIZE):
         document = checked(session.get(API + document_id, params={
             "includeTabsContent": "true", "suggestionsViewMode": "PREVIEW_WITHOUT_SUGGESTIONS"}, timeout=30), "Read document")
-        location, body = target_location(document, tab_id)
-        existing = document_urls(document)
+        location, tab_content = target_location(document, selected_id)
+        selected_id = location["tabId"]  # Pin the same tab across every batch.
+        if start == 0:
+            print(f"Docs: using tab ID {selected_id} for duplicate checks and appends", flush=True)
+        body = tab_content["body"]
+        existing = document_urls(tab_content)
         batch = source[start:start + BATCH_SIZE]
         missing = [url for url in batch if url not in existing]
         already += len(batch) - len(missing)

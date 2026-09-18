@@ -1,8 +1,8 @@
 # Connect your Google Doc
 
-The hourly workflow now uploads to **Google Docs**, not Sheets. It keeps saving `links.txt` too.
+The collection workflow uploads to **Google Docs**, not Sheets. It keeps saving `links.txt` too.
 
-[Your destination document](https://docs.google.com/document/d/1hKE01p0Wy2jjBw5oi0f6-PgVUj4sizWw9SZI6Cu1Jgo/edit) is configured in `config.json`. Links go at the end of the first document tab, one per line. Existing text and duplicate links are preserved.
+[Your destination document](https://docs.google.com/document/d/1hKE01p0Wy2jjBw5oi0f6-PgVUj4sizWw9SZI6Cu1Jgo/edit) is configured in `config.json`. Links go at the end of the configured document tab, one per line; when no tab ID is configured, the first tab is selected. Existing text and duplicate links are preserved.
 
 ## One-time Google access
 
@@ -15,19 +15,19 @@ Otherwise:
 3. Copy the account's email ending in `iam.gserviceaccount.com`. Open your Doc, click **Share**, and add that email with **Editor** access. The document does not need to be public.
 4. Open the service account's **Keys** tab and choose **Add key > Create new key > JSON**.
 5. Open [GitHub Actions secrets](https://github.com/h27096/utopia-link-collector/settings/secrets/actions). Create `GOOGLE_SERVICE_ACCOUNT_JSON` and paste the complete downloaded JSON file as its value. Keep this key out of chat and repository files. If your organization blocks service-account keys, this key-based setup requires an administrator-supported alternative.
-6. In [Actions](https://github.com/h27096/utopia-link-collector/actions), select **Collect Utopia links > Run workflow** on `main`. The Docs upload runs after collection. Future runs remain scheduled at minute 0 of each hour; GitHub may delay scheduled starts.
+6. In [Actions](https://github.com/h27096/utopia-link-collector/actions), select **Collect Utopia links > Run workflow** on `main`. The Docs upload runs after collection. Future runs follow the schedule in `.github/workflows/collect.yml`; GitHub may delay scheduled starts.
 
 Official reference: [Google service-account credentials](https://developers.google.com/workspace/guides/create-credentials#service-account).
 
 ## What gets uploaded
 
-Each run compares all URLs in `links.txt` with the current document. This imports earlier discoveries on the first upload and retries missing links after outages. The check covers text in all tabs, tables, headers, and footnotes returned by the Docs API, plus hyperlink destinations. URLs split across text styles are recognized. Unaccepted suggestions are excluded; comments, images, and inaccessible embedded content are not scanned.
+Each run compares all URLs in `links.txt` with the selected tab. This imports earlier discoveries on the first upload and retries missing links after outages. The check covers text in the selected tab's tables, body, headers, and footnotes returned by the Docs API, plus hyperlink destinations. URLs split across text styles are recognized. Unaccepted suggestions are excluded; comments, images, and inaccessible embedded content are not scanned.
 
 Only missing links are appended. The uploader does not replace, delete, deduplicate, sort, or reformat existing content. Google may inherit formatting from the last paragraph for newly inserted text.
 
 Every batch re-reads the document and uses its revision ID as a write guard. If someone edits it after that read, Google rejects the write and the next run checks again. Network failures do not trigger a blind write retry. This also prevents duplicate additions if a response is lost after Google accepted a batch.
 
-`google_docs.document_id` in `config.json` selects the document. `google_docs.tab_id` is optional; blank uses the first tab. Repository Actions variables `GOOGLE_DOC_ID` and `GOOGLE_DOC_TAB_ID` override these settings. The old Sheets variables are no longer used by the hourly workflow.
+`google_docs.document_id` in `config.json` selects the document. `google_docs.tab_id` is optional; blank uses the first tab. Repository Actions variables `GOOGLE_DOC_ID` and `GOOGLE_DOC_TAB_ID` override these settings. Set `GOOGLE_DOC_TAB_ID` to `t.1r7w8t8rjblc` to target that exact tab, including when it is nested. Duplicate checks and every insertion use only that tab. A configured ID that is absent causes a failure without writing to another tab. Logs print the configured and selected tab IDs, never credentials. The old Sheets variables are no longer used by the collection workflow.
 
 ## Local use and troubleshooting
 
@@ -44,3 +44,4 @@ python sync_docs.py
 - **429:** quota was reached; a later run retries missing links.
 
 Offline tests cover preservation of duplicates and notes, styled URLs, tables and multiple tabs, repeated syncs, lost responses, dry runs, and revision conflicts. Live upload still requires Google access setup; passing offline tests is not evidence that the credentials or document permissions are working.
+
