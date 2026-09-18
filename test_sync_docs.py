@@ -176,6 +176,37 @@ class DocsTests(unittest.TestCase):
             d.sync(session, "doc_id", ["https://new.example/"], tab_id="unknown")
         self.assertFalse(session.posts)
 
+
+    def test_empty_actions_variable_uses_checked_in_tab(self):
+        config = d.Path(d.__file__).with_name("config.json").read_text(encoding="utf-8-sig")
+        self.assertEqual(d.json.loads(config)["google_docs"]["tab_id"], "t.1r7w8t8rjblc")
+        session = FakeSession("Main notes\n")
+        session.document["tabs"].append({"tabProperties": {"tabId": "t.1r7w8t8rjblc"},
+            "documentTab": {"body": {"content": [paragraph("\n")]}}})
+        before = copy.deepcopy(session.document["tabs"][0])
+        with patch.dict("os.environ", {"GOOGLE_DOC_ID": "doc_id", "GOOGLE_DOC_TAB_ID": "",
+                "GOOGLE_SERVICE_ACCOUNT_JSON": "secret-not-for-logs"}, clear=True), \
+                patch("sys.argv", ["sync_docs.py"]), \
+                patch.object(d.Path, "read_text", return_value=config), \
+                patch.object(d, "read_links", return_value=["https://new.example/"]), \
+                patch.object(d, "make_session") as factory:
+            factory.return_value.__enter__.return_value = session
+            self.assertEqual(d.main(), 0)
+        self.assertEqual(session.document["tabs"][0], before)
+        self.assertEqual(session.posts[0]["requests"][0]["insertText"]["endOfSegmentLocation"],
+                         {"tabId": "t.1r7w8t8rjblc"})
+        self.assertIn("Actions variable empty/unset", self.output.getvalue())
+        self.assertNotIn("secret-not-for-logs", self.output.getvalue())
+
+    def test_missing_tab_configuration_fails_before_google_access(self):
+        with patch.dict("os.environ", {"GOOGLE_DOC_ID": "doc_id",
+                "GOOGLE_SERVICE_ACCOUNT_JSON": "secret"}, clear=True), \
+                patch("sys.argv", ["sync_docs.py"]), \
+                patch.object(d.Path, "read_text", return_value='{"google_docs": {}, "links_file": "links.txt"}'), \
+                patch.object(d, "make_session") as factory, patch("sys.stderr", new_callable=io.StringIO):
+            self.assertEqual(d.main(), 1)
+        factory.assert_not_called()
+
     def test_unconfigured_job_skips_upload(self):
         with patch.dict("os.environ", {}, clear=True), patch("sys.argv", ["sync_docs.py", "--if-configured"]):
             self.assertEqual(d.main(), 0)

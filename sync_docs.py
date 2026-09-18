@@ -113,7 +113,8 @@ def main():
         config = json.loads(args.config.read_text(encoding="utf-8-sig"))
         target = config.get("google_docs", {})
         document_id = os.environ.get("GOOGLE_DOC_ID", "").strip() or target.get("document_id", "")
-        tab_id = os.environ.get("GOOGLE_DOC_TAB_ID", "").strip() or target.get("tab_id", "")
+        env_tab_id = os.environ.get("GOOGLE_DOC_TAB_ID", "").strip()
+        tab_id = env_tab_id or target.get("tab_id", "").strip()
         credentials = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
         if not document_id or not credentials:
             message = "Set the Google Doc ID and GOOGLE_SERVICE_ACCOUNT_JSON secret; uploads are pending setup."
@@ -121,6 +122,10 @@ def main():
                 print(message + " links.txt collection continues.")
                 return 0
             raise SyncError(message)
+        if not tab_id:
+            raise SyncError("Set GOOGLE_DOC_TAB_ID or google_docs.tab_id; refusing to default to the first tab.")
+        tab_source = "GOOGLE_DOC_TAB_ID" if env_tab_id else "config.json google_docs.tab_id (Actions variable empty/unset)"
+        print(f"Docs: target tab ID {tab_id} from {tab_source}", flush=True)
         links = read_links(args.config.resolve().parent / config["links_file"])
         with make_session(credentials, scopes=SCOPES) as session:
             sync(session, document_id, links, tab_id=tab_id, dry_run=args.dry_run)

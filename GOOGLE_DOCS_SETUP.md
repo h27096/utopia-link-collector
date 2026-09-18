@@ -2,7 +2,7 @@
 
 The collection workflow uploads to **Google Docs**, not Sheets. It keeps saving `links.txt` too.
 
-[Your destination document](https://docs.google.com/document/d/1hKE01p0Wy2jjBw5oi0f6-PgVUj4sizWw9SZI6Cu1Jgo/edit) is configured in `config.json`. Links go at the end of the configured document tab, one per line; when no tab ID is configured, the first tab is selected. Existing text and duplicate links are preserved.
+[Your destination document](https://docs.google.com/document/d/1hKE01p0Wy2jjBw5oi0f6-PgVUj4sizWw9SZI6Cu1Jgo/edit) is configured in `config.json`. Links go at the end of the configured document tab, one per line; the checked-in destination is `t.1r7w8t8rjblc`. Existing text and duplicate links are preserved.
 
 ## One-time Google access
 
@@ -27,7 +27,7 @@ Only missing links are appended. The uploader does not replace, delete, deduplic
 
 Every batch re-reads the document and uses its revision ID as a write guard. If someone edits it after that read, Google rejects the write and the next run checks again. Network failures do not trigger a blind write retry. This also prevents duplicate additions if a response is lost after Google accepted a batch.
 
-`google_docs.document_id` in `config.json` selects the document. `google_docs.tab_id` is optional; blank uses the first tab. Repository Actions variables `GOOGLE_DOC_ID` and `GOOGLE_DOC_TAB_ID` override these settings. Set `GOOGLE_DOC_TAB_ID` to `t.1r7w8t8rjblc` to target that exact tab, including when it is nested. Duplicate checks and every insertion use only that tab. A configured ID that is absent causes a failure without writing to another tab. Logs print the configured and selected tab IDs, never credentials. The old Sheets variables are no longer used by the collection workflow.
+`google_docs.document_id` in `config.json` selects the document. `google_docs.tab_id` is set to `t.1r7w8t8rjblc`. A nonempty `GOOGLE_DOC_TAB_ID` overrides it; an empty or missing Actions variable uses this checked-in value. If both settings are empty, the uploader stops before writing. Repository Actions variables `GOOGLE_DOC_ID` and `GOOGLE_DOC_TAB_ID` override these settings. Set `GOOGLE_DOC_TAB_ID` to `t.1r7w8t8rjblc` to target that exact tab, including when it is nested. Duplicate checks and every insertion use only that tab. A configured ID that is absent causes a failure without writing to another tab. Logs print the configured and selected tab IDs, never credentials. The old Sheets variables are no longer used by the collection workflow.
 
 ## Local use and troubleshooting
 
